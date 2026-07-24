@@ -75,8 +75,30 @@ Each run writes a raw per-item CSV (every option's log-likelihood, the
 prediction, and correctness/bias flags — enough to re-derive metrics without
 rerunning) plus a `*_metrics.csv` summary to `results/`.
 
-Key flags: `--device {cpu,mps,auto}` (use **cpu**), `--scoring {text,letter}`,
-`--permute`, `--sample N` / `--limit N`, `--seed`, `--dtype`.
+Key flags: `--device {cpu,mps,auto,cuda}` (use **cpu** on the laptop, **cuda** on
+a GPU), `--scoring {text,letter}`, `--permute`, `--sample N` / `--limit N`,
+`--seed`, `--dtype`.
+
+### Run the sweep on Kaggle (GPU)
+
+The full four-size sweep is slow on laptop CPU (the MPS backend is not trusted —
+see above). `notebooks/kaggle_sweep.ipynb` runs it on a free Kaggle GPU instead:
+it clones this repo, installs deps, and runs all four Qwen2.5 sizes
+(0.5B/1.5B/3B/7B) in both `text` and `letter --permute` modes with `--device cuda`,
+writing CSVs to `/kaggle/working/results/` (saved as notebook output).
+
+1. On [kaggle.com](https://www.kaggle.com/code) → **New Notebook** → *File →
+   Import Notebook* and upload `notebooks/kaggle_sweep.ipynb`.
+2. In the right-hand **Settings** panel set **Accelerator = GPU** (a single 16 GB
+   T4 or P100 is enough) and **Internet = On**.
+3. Optional: *Add-ons → Secrets* → add a secret named **`HF_TOKEN`** with a
+   Hugging Face token (avoids download rate limits; Qwen2.5 is ungated so it is
+   not required).
+4. **Run All**. Download the resulting CSVs from the notebook's **Output** tab
+   (or *Save Version* to persist them), then drop them into `results/` locally.
+
+`0.5B/1.5B/3B` run in float32; **7B uses bfloat16** to fit in 16 GB (editable in
+the sweep cell — switch 3B to bfloat16 too if it OOMs).
 
 ## Layout
 
