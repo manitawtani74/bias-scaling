@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Run logs (regenerated each run)
+logs/
+
+# Model weights / HuggingFace cache — must never live in the repo
+models/
+hf_cache/
+.cache/
+*.safetensors
+*.bin
+*.gguf
+
+# NOTE: results/*.csv are intentionally NOT ignored — they are small and are
+# the actual evaluation output.
+
+# Claude Code local harness state
+.claude/
