@@ -3,3 +3,4 @@ torch
 datasets
 pandas
 accelerate
+matplotlib

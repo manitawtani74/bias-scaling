@@ -21,18 +21,52 @@ method and plumbing.
   plus accuracy, reported per category (`src/metrics.py`).
 - **Model family:** **Qwen2.5** (ungated), size points **0.5B / 1.5B / 3B / 7B**.
 
-## Status — in progress, no results claimed
+## Results
 
-⚠️ **All numbers computed earlier on the Apple MPS backend have been discarded.**
-While validating letter mode I observed the MPS backend returning **wrong logits**
-for a subset of inputs (divergences of 5–13 nats vs CPU, enough to flip the
-predicted answer). Every prior MPS run is therefore untrustworthy and no bias
-results are being reported yet.
+Preliminary, single-seed results from the **letter + permutation** configuration
+(letter-position bias removed via 6-way answer-order averaging), run on GPU
+(CUDA) through the Kaggle notebook. Overall scores across the four Qwen2.5 sizes,
+200 items/category, seed 0:
 
-The evaluation is being **re-run on CPU** (`--device cpu`), which matched the
-reference on every input tested. This is the only compute path currently trusted.
-Until those runs complete and are checked, **treat this repo as method + tooling,
-not findings.**
+| size | accuracy (disambig) | bias (ambiguous) | bias (disambig) |
+|------|--------------------:|-----------------:|----------------:|
+| 0.5B | 0.574 | 0.082 | 0.098 |
+| 1.5B | 0.845 | 0.251 | 0.066 |
+| 3B   | 0.903 | 0.305 | 0.010 |
+| 7B   | 0.941 | 0.237 | 0.030 |
+
+**Main finding — capability and stereotypical bias rise together.**
+Disambiguated-context accuracy climbs monotonically with size
+(0.57 → 0.85 → 0.90 → 0.94): larger models read the disambiguating evidence
+better. But in **ambiguous** contexts — where the correct answer is always
+"unknown" and any committed guess reveals a prior — the stereotypical bias score
+*also* rises with size, from 0.08 at 0.5B to 0.25–0.31 at 1.5B–3B (0.24 at 7B).
+So on BBQ the more capable Qwen2.5 models are the ones that lean harder on the
+social stereotype when forced to guess. Disambiguated-context bias stays small
+and even falls with size — there the big models mostly just get the answer right.
+
+![letter+permute scaling](results/scaling_letterperm.png)
+
+Text-mode scoring (plain answer text, no letter format) shows the same overall
+shape at the sizes available so far; the 7B text point is pending (backfilling
+separately) and the figure fills it in automatically once the CSV lands.
+
+![text scaling](results/scaling_text.png)
+
+Regenerate both figures from the metrics CSVs with `python scripts/plot_scaling.py`.
+
+### Limitations
+
+- **Single seed (0), one sample of 200 items/category** — no error bars yet;
+  treat small differences as noise.
+- **One model family** (Qwen2.5); whether the trend generalizes is untested.
+- **Mixed precision:** 0.5B/1.5B in float32, 3B/7B in **bfloat16** (to fit a
+  16 GB GPU), so the two largest points differ in numerical precision from the
+  two smallest.
+- **7B text run pending**, so the text-mode figure currently has three points.
+- Ambiguous-context bias is **non-monotonic at the top end** (peaks at 3B, dips
+  slightly at 7B) — more seeds and sizes are needed to know whether that is real.
+- **Apple MPS results are excluded entirely** — see the open question below.
 
 ## Open question: the MPS logit anomaly
 
@@ -108,6 +142,9 @@ src/
   scoring.py    log-likelihood scoring, text + letter modes
   metrics.py    BBQ bias-score computation
   evaluate.py   CLI entry point
-repro_mps_bug.py  MPS logit-divergence probe
-results/        per-run CSV outputs (committed; the actual output)
+scripts/
+  plot_scaling.py   build the scaling figures from the metrics CSVs
+notebooks/          Kaggle GPU sweep + 7B-text backfill
+repro_mps_bug.py    MPS logit-divergence probe
+results/            per-run CSV outputs + scaling_*.png (committed; the actual output)
 ```

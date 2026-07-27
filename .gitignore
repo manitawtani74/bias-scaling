@@ -20,3 +20,6 @@ hf_cache/
 
 # Claude Code local harness state
 .claude/
+
+# Stray notebook/run logs
+*.log
