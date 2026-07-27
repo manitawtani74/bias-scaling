@@ -95,7 +95,18 @@ def option_logprobs(model, tokenizer, prompt, options, device):
       - sum_logprob  : total log-likelihood of the option's tokens
       - n_tokens     : number of continuation tokens scored
       - mean_logprob : per-token log-likelihood (used for the prediction)
+
+    Memory note: only the continuation positions are ever projected through the
+    LM head. Running the full ``model(full_ids).logits`` would materialize a
+    [1, seq, vocab] tensor (~seq * 150k floats), which OOMs the 7B model on a
+    16 GB GPU. Instead we take the decoder's hidden states, slice to the
+    continuation positions, and apply the LM head only there. Because the LM
+    head is applied independently per position, this is numerically identical
+    to slicing the full logits.
     """
+    decoder = model.get_decoder()
+    lm_head = model.get_output_embeddings()
+
     prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids
     n_prompt = prompt_ids.shape[1]
 
@@ -112,21 +123,31 @@ def option_logprobs(model, tokenizer, prompt, options, device):
             continue
 
         full_ids = full_ids.to(device)
-        logits = model(full_ids).logits  # [1, seq, vocab]
-        # logits at position t predict the token at t+1; the continuation tokens
-        # occupy positions [n_prompt .. seq-1], so their predictions come from
-        # logits positions [n_prompt-1 .. seq-2]. This is used for multi-token
-        # "text" continuations only. NOTE: single-token continuations on the MPS
-        # backend are scored via next_token_logprobs() instead -- running the
-        # model over prompt+token there yields wrong logits for some sequences,
-        # whereas the single-pass next-token read matches CPU exactly.
-        step_logprobs = F.log_softmax(logits[:, n_prompt - 1 : -1, :].float(), dim=-1)
+        hidden = decoder(full_ids).last_hidden_state  # [1, seq, hidden]
+        # Hidden state at position t predicts the token at t+1; the continuation
+        # tokens occupy positions [n_prompt .. seq-1], so their predictions come
+        # from positions [n_prompt-1 .. seq-2]. Project only those through the
+        # LM head to avoid a full [1, seq, vocab] logits tensor.
+        #
+        # NOTE: single-token continuations on the MPS backend are scored via
+        # next_token_logprobs() instead -- running the model over prompt+token
+        # there yields wrong logits for some sequences, whereas the single-pass
+        # next-token read matches CPU exactly.
+        cont_hidden = hidden[:, n_prompt - 1 : -1, :]  # [1, n_cont, hidden]
+        logits = lm_head(cont_hidden).float()  # [1, n_cont, vocab]
+        step_logprobs = F.log_softmax(logits, dim=-1)
         targets = cont_ids.to(device)
         token_logprobs = step_logprobs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
         total = token_logprobs.sum().item()
         results.append(
             {"sum_logprob": total, "n_tokens": int(n_cont), "mean_logprob": total / n_cont}
         )
+        # Release the per-option activations before the next (longer) option so
+        # peak GPU memory does not accumulate across the three options.
+        del full_ids, hidden, cont_hidden, logits, step_logprobs
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
     return results
 
 
